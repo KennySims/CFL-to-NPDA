@@ -223,14 +223,14 @@ def Run_NPDA(npda, string):
                         queue.append((nextState, newInputPosition, newStackTuple, depth + 1))
     
     return 'reject'
-    
+    #used ai to get a grasp of the high level overview of the code to get an idea of the structure and how to parse the NPDA.
 def parse_automaton_to_dict(automatonString, automatonType):
     
-    # Split into states and transitions
+    # split into states and transitions
     parts = automatonString.split(',')
     statesString = parts[0]
     
-    # Parse states from concatenated format
+    # parse states from concatenated format
     def parse_states_from_string(statesStr):
         states = []
         acceptingStates = set()
@@ -241,26 +241,26 @@ def parse_automaton_to_dict(automatonString, automatonType):
             char = statesStr[i]
             
             if char.isalpha() and char.islower() and currState == "":
-                # Start of new state (like 'q' or 'r')
+                # start of new state
                 currState += char
             elif char.isdigit():
-                # Part of state name
+                # part of state name
                 currState += char
             elif char == 'f':
-                # Accept state marker
+                # accept state marker
                 if currState:
                     states.append(currState + 'f')
                     acceptingStates.add(currState)
                     currState = ""
             elif char.isalpha() and char.islower() and currState != "":
-                # Start of next state
+                # start of next state
                 if currState:
                     states.append(currState)
                 currState = char
             
             i += 1
         
-        # Add final state if exists
+        # add final state if it exists
         if currState:
             states.append(currState)
         
@@ -268,10 +268,10 @@ def parse_automaton_to_dict(automatonString, automatonType):
     
     states, acceptingStates = parse_states_from_string(statesString)
     
-    # Parse transitions
+    # parse transitions
     transitions = {}
     transitionList = []
-    
+    # loops thorugh the tranition parts and puts them in a dict
     for i in range(1, len(parts)):
         transPart = parts[i]
         if '->' in transPart:
@@ -279,9 +279,9 @@ def parse_automaton_to_dict(automatonString, automatonType):
             right = right.strip()
             
             if automatonType == "NPDA":
-                # Handle NPDA transitions with stack operations
+                # handle NPDA transitions with stack operations
                 if '|' in left:
-                    # Multiple stack operations
+                    # logic formultiple stack operations
                     operations = left.split('|')
                     baseState = None
                     baseInput = None
@@ -291,7 +291,7 @@ def parse_automaton_to_dict(automatonString, automatonType):
                         opParts = op.split('-')
                         
                         if j == 0:
-                            # First operation has state
+                            # first operation has state
                             if len(opParts) >= 4:
                                 baseState = opParts[0]
                                 baseInput = opParts[1] if opParts[1] != 'empty' else ''
@@ -302,18 +302,18 @@ def parse_automaton_to_dict(automatonString, automatonType):
                                 }
                                 transitionList.append(transitionInfo)
                         else:
-                            # Subsequent operations
+                            # logic for subsequent operations
                             if len(opParts) >= 3:
                                 inputSym = opParts[0] if opParts[0] != 'empty' else ''
                                 stackTop = opParts[1]
                                 stackPush = opParts[2]
                                 
-                                # Process all operations regardless of input symbol
+                                # process all operations regardless of input symbol
                                 transitionInfo = {'from_state': baseState,'input': inputSym,'stackTop': stackTop,'stack_push': stackPush,'to_state': right
                                 }
                                 transitionList.append(transitionInfo)
                 else:
-                    # Single operation
+                    # single operation
                     opParts = left.strip().split('-')
                     if len(opParts) >= 4:
                         fromState = opParts[0]
@@ -325,13 +325,13 @@ def parse_automaton_to_dict(automatonString, automatonType):
                         }
                         transitionList.append(transitionInfo)
             else:
-                # NFA transitions with support for "or" syntax (a|b)
+                # NFA transitions with support for "or" inputs
                 leftParts = left.split('-')
                 if len(leftParts) >= 2:
                     fromState = leftParts[0]
                     inputSym = leftParts[1]
                     
-                    # Handle multiple inputs separated by |
+                    # handle multiple inputs separated by |
                     if '|' in inputSym:
                         # Split by | and create separate transitions for each input
                         inputOptions = inputSym.split('|')
@@ -341,19 +341,19 @@ def parse_automaton_to_dict(automatonString, automatonType):
                             }
                             transitionList.append(transitionInfo)
                     else:
-                        # Single input transition
+                        # single input transition
                         transitionInfo = {'from_state': fromState,'input': inputSym,'to_state': right
                         }
                         transitionList.append(transitionInfo)
     
-    # Group transitions by source state
+    # group  the transitions by source state
     for trans in transitionList:
         fromState = trans['from_state']
         if fromState not in transitions:
             transitions[fromState] = []
         transitions[fromState].append(trans)
     
-    # Build the result dictionary
+    # build the result dictionary
     result = {
         'states': states,
         'acceptingStates': acceptingStates,
@@ -402,7 +402,7 @@ def Intersection_NPDA_NFA(npda, nfa):
 
     finalNpda = finalNpda[:-1] 
     return finalNpda 
-
+#used ai to help make reading and writing text files eaiser.
 baseDir = os.path.dirname(os.path.abspath(__file__)) # file path to make nagivating to test files eaiser
 
 testCases = [

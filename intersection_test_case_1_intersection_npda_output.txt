@@ -1,0 +1,1 @@
+q1q1,q2q1,q3q1,q1q2,q2q2,q3q2f,q1q1-a-z-az->q1q1,q1q1-a-a-empty->q1q1,q1q1-b-z-z->q2q1,q1q1-b-a-a->q2q1,q1q1-empty-z-z->q1q2,q1q1-empty-z-z->q2q2,q2q1-a-z-az->q1q1,q2q1-a-a-empty->q1q1,q2q1-b-z-z->q3q1,q2q1-b-a-a->q3q1,q2q1-empty-z-z->q1q2,q2q1-empty-z-z->q3q2,q3q1-a-z-az->q3q1,q3q1-a-a-empty->q3q1,q3q1-b-z-z->q3q1,q3q1-b-a-a->q3q1,q3q1-empty-z-z->q3q2,q3q1-empty-z-z->q3q2
