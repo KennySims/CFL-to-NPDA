@@ -1,419 +1,517 @@
 from collections import defaultdict, deque
+import os
 
 def CFG_to_NPDA(cfg):
-    initialState = cfg.split("->")[0].strip() 
+    initialState = cfg.split("->")[0].strip() # first we get the intial state
+    # parese thorugh the CFG symbols into a dict for later
     productions = defaultdict(list)
     for line in cfg.splitlines():
             left, right = line.split("->")
             left = left.strip()
             for rule in right.split("|"):
                 productions[left].append(rule.strip())
-    Transformed_NPDA = ""
-    Transformed_NPDA += (",q1-empty-z-" + str(initialState) + "z->q2")
-
+    transformedNPDA = ""
+    transformedNPDA += (",q1-empty-z-" + str(initialState) + "z->q2") # start the NPDA off with the intial transition. Has start symbol and bottom marker for later construciton.
     maxState = 1
     loopCounter = 0
+    # loops thorugh nonterminals and their productions to build the NPDA transitions
     for nonTerminal in productions:
         for rule in productions[nonTerminal]:
             if len(rule) == 1 or rule == "empty" or len(rule) == 2 and str(rule[1]) == str(nonTerminal):
                 if loopCounter == 0:
-                    Transformed_NPDA += (",q2")
+                    transformedNPDA += (",q2") # adds state q2 as the first processing state
                 loopCounter += 1
+        # the seceond pass goes thorugh and builds the trantions in the correct format. ex (q2, ε, A) → (q2, α) is represented as q2-empty-A-α->q2
         for rule in productions[nonTerminal]:
             if len(rule) == 1 or rule == "empty" or len(rule) == 2 and str(rule[1]) == str(nonTerminal):
                 if loopCounter != 0:
-                    Transformed_NPDA += ("-empty-" + nonTerminal + "-" + str(rule) + "|")      
+                    #multiple unit productions: separate with '|'
+                    transformedNPDA += ("-empty-" + nonTerminal + "-" + str(rule) + "|")      
                 else:
-                    Transformed_NPDA += ("-empty-" + nonTerminal + "-" + str(rule) + "->q2")
-    Transformed_NPDA += ("-a-a-empty|")
-    Transformed_NPDA += ("-b-b-empty->q2,q2-empty-z-z->q3")
+                    #single unit production: complete the transition
+                    transformedNPDA += ("-empty-" + nonTerminal + "-" + str(rule) + "->q2")
+    
+    # this loops thorugh and adds tranitions for each terminal symbol in the productions. ex (q2, a, a) → (q2, ε) is represented as q2-empty-a-a->q2. 
+    transformedNPDA += ("-a-a-empty|")
+    transformedNPDA += ("-b-b-empty->q2,q2-empty-z-z->q3")
     maxState = 3
     for nonTerminal in productions:
         for rule in productions[nonTerminal]:
             currentState = 3
             if len(rule) > 1 and rule != "empty" and not (len(rule) == 2 and str(rule[1]) == str(nonTerminal)):
                 maxState += 1
-                Transformed_NPDA += (",q2-empty-" + nonTerminal + "-" + str(rule[-1]) + "->q" + str(maxState))
+                transformedNPDA += (",q2-empty-" + nonTerminal + "-" + str(rule[-1]) + "->q" + str(maxState))
                 currentState = maxState
                 
                 for i in range(len(rule)-2, -1, -1):
                     if i == 0:
-                        Transformed_NPDA += (",q" + str(currentState) + "-empty-" + str(rule[i+1]) + "-" + str(rule[i]) + str(rule[i+1]) + "->q2")
+                        # this checks if we are at the end of the production and if so it completes the transition to q2. ex (q2, ε, A) → (q2, α) is represented as q2-empty-A-α->q2
+                        transformedNPDA += (",q" + str(currentState) + "-empty-" + str(rule[i+1]) + "-" + str(rule[i]) + str(rule[i+1]) + "->q2")
                     else:
+                        # make a new state and add a trantion if we are not at the end of the production
                         maxState += 1
-                        Transformed_NPDA += (",q" + str(currentState) + "-empty-" + str(rule[i+1]) + "-" + str(rule[i]) + str(rule[i+1]) + "->q" + str(maxState))
+                        transformedNPDA += (",q" + str(currentState) + "-empty-" + str(rule[i+1]) + "-" + str(rule[i]) + str(rule[i+1]) + "->q" + str(maxState))
                         currentState = maxState
     if maxState > 3:
+        # add intermediate states the the beginning of the NPDA string to ensure they are recognized as states in the final NPDA representation.
         for i in range(maxState - 3):
-            Transformed_NPDA = ",q" + str(maxState - i) + Transformed_NPDA
-    Transformed_NPDA = "q1,q2,q3f" + Transformed_NPDA
+            transformedNPDA = ",q" + str(maxState - i) + transformedNPDA
+    # final NPDA is build by taking putting the sates infront of the NPDA we built for formatting.
+    transformedNPDA = "q1,q2,q3f" + transformedNPDA
 
-    return Transformed_NPDA
+    return transformedNPDA
 
 def Run_NPDA(npda, string):
     parts = npda.split(',')
-    starting_state = parts[0] 
+    startingState = parts[0] 
     
-    # Find where transitions start (after the states)
-    states_end = 0
+    # finn wehre tranitions start and states end.
+    endPtr = 0
     for i, part in enumerate(parts):
         if '->' in part:
-            states_end = i
+            endPtr = i
             break
     
-    # Extract accepting states only (optimization: don't store all states)
-    accepting_states = set()
+    # stores all the accpeting states for faster access later. 
+    acceptingStates = set()
     
-    for i in range(states_end):
+    for i in range(endPtr):
         state = parts[i]
         if state.endswith('f'):
-            clean_state = state[:-1]  # Remove 'f'
-            accepting_states.add(clean_state)
+            cleanState = state[:-1]  # Remove 'f'
+            acceptingStates.add(cleanState)
     
-    # Parse transitions with optimized storage
     transitions = defaultdict(list)
+    # reconstructs transition string from remaining parts
+    transitionParts = parts[endPtr:]
     
-    # Reconstruct transition string from remaining parts
-    transition_parts = parts[states_end:]
+    # adds commas for easier reading between trantions.
+    tranitionList = []
+    currTranition = ""
     
-    # Split transitions by commas but be careful of transitions that span multiple parts
-    trans_list = []
-    current_trans = ""
-    
-    for part in transition_parts:
-        if current_trans:
-            current_trans += "," + part
+    for part in transitionParts:
+        if currTranition:
+            currTranition += "," + part
         else:
-            current_trans = part
+            currTranition = part
             
-        if '->' in current_trans:
-            trans_list.append(current_trans)
-            current_trans = ""
+        if '->' in currTranition:
+            tranitionList.append(currTranition)
+            currTranition = ""
     
-    # Parse each transition
-    for trans in trans_list:
+    # parses each tranition
+    for trans in tranitionList:
         if '->' not in trans:
             continue
             
         left, right = trans.split('->')
         right = right.strip()
         
-        # Handle multiple source transitions separated by |
+        # handles tranitions with multiple stack operations
         if '|' in left:
-            source_transitions = left.split('|')
-            # Get the state from the first transition
-            first_trans_parts = source_transitions[0].strip().split('-')
-            if len(first_trans_parts) >= 1:
-                base_state = first_trans_parts[0]
+            sourceTransitions = left.split('|')
+            # get the state from the first transition
+            firstTransitionParts = sourceTransitions[0].strip().split('-')
+            if len(firstTransitionParts) >= 1:
+                baseState = firstTransitionParts[0]
             else:
                 continue
                 
-            # Reconstruct full transitions for subsequent parts
-            reconstructed_transitions = []
-            for i, source_trans in enumerate(source_transitions):
-                source_trans = source_trans.strip()
-                if not source_trans:
+            # reconstructs full transitions for next parts
+            reconTransitions = []
+            for i, sourceTrans in enumerate(sourceTransitions):
+                sourceTrans = sourceTrans.strip()
+                if not sourceTrans:
                     continue
                     
                 if i == 0:
-                    # First transition is complete
-                    reconstructed_transitions.append(source_trans)
+                    # first transition is complete
+                    reconTransitions.append(sourceTrans)
                 else:
-                    # Subsequent transitions need state prefixed
-                    if source_trans.startswith('-'):
-                        reconstructed_transitions.append(base_state + source_trans)
+                    # prefixes subsequent transitions if needed.
+                    if sourceTrans.startswith('-'):
+                        reconTransitions.append(baseState + sourceTrans)
                     else:
-                        reconstructed_transitions.append(source_trans)
+                        reconTransitions.append(sourceTrans)
         else:
-            reconstructed_transitions = [left.strip()]
+            reconTransitions = [left.strip()]
             
-        for source_trans in reconstructed_transitions:
-            source_trans = source_trans.strip()
-            if not source_trans:
+        for sourceTrans in reconTransitions: # continue building the transition list for the NPDA.
+            sourceTrans = sourceTrans.strip()
+            if not sourceTrans:
                 continue
                 
-            parts_trans = source_trans.split('-')
-            if len(parts_trans) >= 4:
-                state = parts_trans[0]
-                input_sym = parts_trans[1] if parts_trans[1] != 'empty' else ''
-                stack_top = parts_trans[2] if parts_trans[2] != 'empty' else ''
-                new_stack = '-'.join(parts_trans[3:]) if parts_trans[3] != 'empty' else ''
+            partsTrans = sourceTrans.split('-')
+            if len(partsTrans) >= 4:
+                state = partsTrans[0]
+                inputSym = partsTrans[1] if partsTrans[1] != 'empty' else ''
+                stackTop = partsTrans[2] if partsTrans[2] != 'empty' else ''
+                newStack = '-'.join(partsTrans[3:]) if partsTrans[3] != 'empty' else ''
                 
-                transitions[state].append({ 'input': input_sym, 'stack_top': stack_top, 'new_stack': new_stack, 'next_state': right })
+                transitions[state].append({ 'input': inputSym, 'stackTop': stackTop, 'new_stack': newStack, 'nextState': right })
     
-    string_len = len(string)
-    queue = deque([(starting_state, 0, ('z',), 0)])
+    stringLength = len(string)
+    queue = deque([(startingState, 0, ('z',), 0)])
     
-    # Memoization: track visited configurations to avoid redundant exploration
+    # visted set to make it so we dont revist the same config multiple times(infintie loops).
     visited = set()
     
     while queue:
-        current_state, input_pos, stack_tuple, depth = queue.popleft()
-        #print(f"Current state: {current_state}, Input position: {input_pos}, Stack: {stack_tuple}, Depth: {depth}")
-        
-        # Early termination conditions
-        if depth >= 50:  # Depth limit to prevent infinite loops
+        currState, inputPosition, stackTuple, depth = queue.popleft()
+        #print(f"Current state: {currState}, Input position: {inputPosition}, Stack: {stackTuple}, Depth: {depth}") # debugging print
+        if depth >= 50:  # depth limit
             continue
-        # Create configuration key for memoization
-        config_key = (current_state, input_pos, stack_tuple)
-        if config_key in visited:
-            #print(f"Already visited: {config_key}, skipping...")
+        # create config  key for visted set
+        configKey = (currState, inputPosition, stackTuple)
+        if configKey in visited:
+            #print(f"Already visited: {configKey}, skipping...") # debugging print
             continue
-        visited.add(config_key)
+        visited.add(configKey)
         
-        # Check acceptance condition - modified based on NPDA semantics
-        if (current_state in accepting_states and input_pos == string_len):
+        # checks accpeting state and if the input is fully read
+        if (currState in acceptingStates and inputPosition == stringLength):
             return 'accept'
         
-        # Try all possible transitions from current state
-        if current_state in transitions:
-            for transition in transitions[current_state]:
-                input_sym = transition['input']
-                stack_top = transition['stack_top']
-                new_stack_sym = transition['new_stack']
-                next_state = transition['next_state']
+        # trys all trnaitons for the current state. if the transition is valid it adds the new config to the queue for processing.
+        if currState in transitions:
+            for transition in transitions[currState]:
+                inputSym = transition['input']
+                stackTop = transition['stackTop']
+                newStackSym = transition['new_stack']
+                nextState = transition['nextState']
                 
-                # Check input consumption
-                can_apply = False
-                new_input_pos = input_pos
-                
-                if input_sym == '':  # Epsilon transition
-                    can_apply = True
-                elif input_pos < string_len and string[input_pos] == input_sym:
-                    new_input_pos = input_pos + 1
-                    can_apply = True
+                # checks input consumption
+                doesApply = False
+                newInputPosition = inputPosition
+                # lamda trantion logic
+                if inputSym == '': 
+                    doesApply = True
+                elif inputPosition < stringLength and string[inputPosition] == inputSym:
+                    newInputPosition = inputPosition + 1
+                    doesApply = True
                 else:
                     continue
                 
-                # Check stack operations
-                stack_list = list(stack_tuple)
-                
-                if stack_top == '':  # No stack requirement
-                    # Just push new symbols if any
-                    if new_stack_sym:
-                        # Push in reverse order since stack is LIFO
-                        for sym in reversed(new_stack_sym):
-                            stack_list.append(sym)
-                elif stack_list and stack_list[-1] == stack_top:
-                    # Pop the required symbol
-                    stack_list.pop()
-                    # Push new symbols if any
-                    if new_stack_sym:
-                        for sym in reversed(new_stack_sym):
-                            stack_list.append(sym)
-                elif not stack_list and stack_top == 'z':
-                    # Special case: trying to match bottom marker when stack is empty
+                # check stack operations
+                stackList = list(stackTuple)
+                # stack logic
+                if stackTop == '':
+                    if newStackSym:
+                        # push in reverse order since stack is LIFO
+                        for sym in reversed(newStackSym):
+                            stackList.append(sym)
+                elif stackList and stackList[-1] == stackTop:
+                    # pops symbol 
+                    stackList.pop()
+                    # pushes symbol 
+                    if newStackSym:
+                        for sym in reversed(newStackSym):
+                            stackList.append(sym)
+                elif not stackList and stackTop == 'z':
+                    # special case for trying to match bottom marker when stack is empty
                     continue
                 else:
-                    continue  # Can't apply transition
+                    continue
                 
-                if can_apply:
-                    new_stack_tuple = tuple(stack_list)
-                    new_config = (next_state, new_input_pos, new_stack_tuple)
+                # makes new config and adds it to the queue if it has not already been visted.
+                if doesApply:
+                    newStackTuple = tuple(stackList)
+                    newConfig = (nextState, newInputPosition, newStackTuple)
                 
-                    # Only add if not already visited (additional check for efficiency)
-                    if new_config not in visited and len(new_stack_tuple) < 15:
-                        queue.append((next_state, new_input_pos, new_stack_tuple, depth + 1))
+                    # only add if not already visited (additional check for efficiency)
+                    if newConfig not in visited and len(newStackTuple) < 15:
+                        queue.append((nextState, newInputPosition, newStackTuple, depth + 1))
     
     return 'reject'
     
-def parse_automaton_to_dict(automaton_string, automaton_type):
+def parse_automaton_to_dict(automatonString, automatonType):
     
     # Split into states and transitions
-    parts = automaton_string.split(',')
-    states_string = parts[0]
+    parts = automatonString.split(',')
+    statesString = parts[0]
     
     # Parse states from concatenated format
-    def parse_states_from_string(states_str):
+    def parse_states_from_string(statesStr):
         states = []
-        accept_states = set()
+        acceptingStates = set()
         i = 0
-        current_state = ""
+        currState = ""
         
-        while i < len(states_str):
-            char = states_str[i]
+        while i < len(statesStr):
+            char = statesStr[i]
             
-            if char.isalpha() and char.islower() and current_state == "":
+            if char.isalpha() and char.islower() and currState == "":
                 # Start of new state (like 'q' or 'r')
-                current_state += char
+                currState += char
             elif char.isdigit():
                 # Part of state name
-                current_state += char
+                currState += char
             elif char == 'f':
                 # Accept state marker
-                if current_state:
-                    states.append(current_state + 'f')
-                    accept_states.add(current_state)
-                    current_state = ""
-            elif char.isalpha() and char.islower() and current_state != "":
+                if currState:
+                    states.append(currState + 'f')
+                    acceptingStates.add(currState)
+                    currState = ""
+            elif char.isalpha() and char.islower() and currState != "":
                 # Start of next state
-                if current_state:
-                    states.append(current_state)
-                current_state = char
+                if currState:
+                    states.append(currState)
+                currState = char
             
             i += 1
         
         # Add final state if exists
-        if current_state:
-            states.append(current_state)
+        if currState:
+            states.append(currState)
         
-        return states, accept_states
+        return states, acceptingStates
     
-    states, accept_states = parse_states_from_string(states_string)
+    states, acceptingStates = parse_states_from_string(statesString)
     
     # Parse transitions
     transitions = {}
-    transition_list = []
+    transitionList = []
     
     for i in range(1, len(parts)):
-        trans_part = parts[i]
-        if '->' in trans_part:
-            left, right = trans_part.split('->')
+        transPart = parts[i]
+        if '->' in transPart:
+            left, right = transPart.split('->')
             right = right.strip()
             
-            if automaton_type == "NPDA":
+            if automatonType == "NPDA":
                 # Handle NPDA transitions with stack operations
                 if '|' in left:
                     # Multiple stack operations
                     operations = left.split('|')
-                    base_state = None
-                    base_input = None
+                    baseState = None
+                    baseInput = None
                     
                     for j, op in enumerate(operations):
                         op = op.strip()
-                        op_parts = op.split('-')
+                        opParts = op.split('-')
                         
                         if j == 0:
                             # First operation has state
-                            if len(op_parts) >= 4:
-                                base_state = op_parts[0]
-                                base_input = op_parts[1] if op_parts[1] != 'empty' else ''
-                                stack_top = op_parts[2]
-                                stack_push = op_parts[3]
+                            if len(opParts) >= 4:
+                                baseState = opParts[0]
+                                baseInput = opParts[1] if opParts[1] != 'empty' else ''
+                                stackTop = opParts[2]
+                                stackPush = opParts[3]
                                 
-                                transition_info = {'from_state': base_state, 'input': base_input, 'stack_top': stack_top, 'stack_push': stack_push, 'to_state': right
+                                transitionInfo = {'from_state': baseState, 'input': baseInput, 'stackTop': stackTop, 'stack_push': stackPush, 'to_state': right
                                 }
-                                transition_list.append(transition_info)
+                                transitionList.append(transitionInfo)
                         else:
                             # Subsequent operations
-                            if len(op_parts) >= 3:
-                                input_sym = op_parts[0] if op_parts[0] != 'empty' else ''
-                                stack_top = op_parts[1]
-                                stack_push = op_parts[2]
+                            if len(opParts) >= 3:
+                                inputSym = opParts[0] if opParts[0] != 'empty' else ''
+                                stackTop = opParts[1]
+                                stackPush = opParts[2]
                                 
                                 # Process all operations regardless of input symbol
-                                transition_info = {'from_state': base_state,'input': input_sym,'stack_top': stack_top,'stack_push': stack_push,'to_state': right
+                                transitionInfo = {'from_state': baseState,'input': inputSym,'stackTop': stackTop,'stack_push': stackPush,'to_state': right
                                 }
-                                transition_list.append(transition_info)
+                                transitionList.append(transitionInfo)
                 else:
                     # Single operation
-                    op_parts = left.strip().split('-')
-                    if len(op_parts) >= 4:
-                        from_state = op_parts[0]
-                        input_sym = op_parts[1] if op_parts[1] != 'empty' else ''
-                        stack_top = op_parts[2]
-                        stack_push = op_parts[3]
+                    opParts = left.strip().split('-')
+                    if len(opParts) >= 4:
+                        fromState = opParts[0]
+                        inputSym = opParts[1] if opParts[1] != 'empty' else ''
+                        stackTop = opParts[2]
+                        stackPush = opParts[3]
                         
-                        transition_info = {'from_state': from_state,'input': input_sym,'stack_top': stack_top,'stack_push': stack_push,'to_state': right
+                        transitionInfo = {'from_state': fromState,'input': inputSym,'stackTop': stackTop,'stack_push': stackPush,'to_state': right
                         }
-                        transition_list.append(transition_info)
+                        transitionList.append(transitionInfo)
             else:
                 # NFA transitions with support for "or" syntax (a|b)
-                left_parts = left.split('-')
-                if len(left_parts) >= 2:
-                    from_state = left_parts[0]
-                    input_sym = left_parts[1]
+                leftParts = left.split('-')
+                if len(leftParts) >= 2:
+                    fromState = leftParts[0]
+                    inputSym = leftParts[1]
                     
                     # Handle multiple inputs separated by |
-                    if '|' in input_sym:
+                    if '|' in inputSym:
                         # Split by | and create separate transitions for each input
-                        input_options = input_sym.split('|')
-                        for input_option in input_options:
-                            input_option = input_option.strip()
-                            transition_info = {'from_state': from_state,'input': input_option,'to_state': right
+                        inputOptions = inputSym.split('|')
+                        for inputOption in inputOptions:
+                            inputOption = inputOption.strip()
+                            transitionInfo = {'from_state': fromState,'input': inputOption,'to_state': right
                             }
-                            transition_list.append(transition_info)
+                            transitionList.append(transitionInfo)
                     else:
                         # Single input transition
-                        transition_info = {'from_state': from_state,'input': input_sym,'to_state': right
+                        transitionInfo = {'from_state': fromState,'input': inputSym,'to_state': right
                         }
-                        transition_list.append(transition_info)
+                        transitionList.append(transitionInfo)
     
     # Group transitions by source state
-    for trans in transition_list:
-        from_state = trans['from_state']
-        if from_state not in transitions:
-            transitions[from_state] = []
-        transitions[from_state].append(trans)
+    for trans in transitionList:
+        fromState = trans['from_state']
+        if fromState not in transitions:
+            transitions[fromState] = []
+        transitions[fromState].append(trans)
     
     # Build the result dictionary
     result = {
         'states': states,
-        'accepting_states': accept_states,
+        'acceptingStates': acceptingStates,
         'transitions': transitions,
     }
     
     return result
 
 def Intersection_NPDA_NFA(npda, nfa):
-    final_npda = ""
-    npda_dict = parse_automaton_to_dict(npda, "NPDA")
-    nfa_dict = parse_automaton_to_dict(nfa, "NFA")
+    finalNpda = ""
+    # parse both automata into dictionaries for easier processing
+    npdaDict = parse_automaton_to_dict(npda, "NPDA")
+    nfaDict = parse_automaton_to_dict(nfa, "NFA")
     
-    npda_states = npda_dict['states']
-    npda_transitions = npda_dict['transitions']
+    npdaStates = npdaDict['states']
+    npdaTransitions = npdaDict['transitions']
     
-    nfa_states = nfa_dict['states']
-    nfa_transitions = nfa_dict['transitions']
-    for npda_state in npda_states:
-        for nfa_state in nfa_states:
-            if npda_state.endswith('f') and nfa_state.endswith('f'):
-                final_npda += nfa_state[:-1] + npda_state + ','
-            elif nfa_state.endswith('f'):
-                final_npda += nfa_state[:-1] + npda_state + ','
-            elif npda_state.endswith('f'):
-                final_npda += nfa_state + npda_state[:-1] + ','
+    nfaStates = nfaDict['states']
+    nfaTransitions = nfaDict['transitions']
+    #loops thorugh states to build the product state set and marks accept states.
+    for npdaState in npdaStates:
+        for nfaState in nfaStates:
+            if npdaState.endswith('f') and nfaState.endswith('f'):
+                # if for when both  the npda and nfa are accepting states.
+                finalNpda += nfaState[:-1] + npdaState + ','
+            elif nfaState.endswith('f'):
+                # if the nfa accepts but the npda does not strip the f so the product state does not accept.
+                finalNpda += nfaState[:-1] + npdaState + ','
+            elif npdaState.endswith('f'):
+                # if the npda accepts but the nfa does not strip the f so the product state does not accept.
+                finalNpda += nfaState + npdaState[:-1] + ','
             else:
-                final_npda += nfa_state + npda_state + ','
-    for npda_state_name in npda_transitions:
-        for nfa_state_name in nfa_transitions:
-            for npda_trans in npda_transitions[npda_state_name]:
-                for nfa_trans in nfa_transitions[nfa_state_name]:
-                    if npda_trans['input'] == nfa_trans['input']:
-                        final_npda += nfa_trans['from_state'] + npda_trans['from_state'] + '-' + npda_trans['input'] + '-' + npda_trans['stack_top'] + '-' + npda_trans['stack_push'] + '->' + nfa_trans['to_state'] + npda_trans['to_state'] + ','
-                    if npda_trans['input'] == '':
-                        final_npda += nfa_trans['from_state'] + npda_trans['from_state'] + '-empty-' + npda_trans['stack_top'] + '-' + npda_trans['stack_push'] + '->' + nfa_trans['to_state'] + npda_trans['to_state'] + ','
-    final_npda = final_npda[:-1] 
-    return final_npda 
+                # Neither accepting: concatenate as-is
+                finalNpda += nfaState + npdaState + ','
+    #loops thorugh sstates and trantions to make the product trantions for the new NPDA.
+    for npdaStateName in npdaTransitions:
+        for nfaStateName in nfaTransitions:
+            for npdaTrans in npdaTransitions[npdaStateName]:
+                for nfaTrans in nfaTransitions[nfaStateName]:
+                    if npdaTrans['input'] == nfaTrans['input']:
+                        #if both transitions consume the same terminal add a product transition to the new NPDA
+                        finalNpda += nfaTrans['from_state'] + npdaTrans['from_state'] + '-' + npdaTrans['input'] + '-' + npdaTrans['stackTop'] + '-' + npdaTrans['stack_push'] + '->' + nfaTrans['to_state'] + npdaTrans['to_state'] + ','
+                    if npdaTrans['input'] == '':
+                        # if the NPDA makes an lamda tranition add a product trantion where the NFA doesnt move and the NPDA makes its lamda tranition.
+                        finalNpda += nfaTrans['from_state'] + npdaTrans['from_state'] + '-empty-' + npdaTrans['stackTop'] + '-' + npdaTrans['stack_push'] + '->' + nfaTrans['to_state'] + npdaTrans['to_state'] + ','
 
-#Example CFG input
-example_cfg = """S -> U|V
-U -> XAX|UU
-V -> XBX|VV
-X -> aXb|bXa|XX|empty
-A -> aA|a
-B -> bB|b"""
+    finalNpda = finalNpda[:-1] 
+    return finalNpda 
 
-print("CFG input:")
-print(example_cfg)
-print("\nCFG output:")
-npda_result = CFG_to_NPDA(example_cfg)
-print(npda_result)
+baseDir = os.path.dirname(os.path.abspath(__file__)) # file path to make nagivating to test files eaiser
 
-# Test the NPDA with some strings
-print("\n--- Testing NPDA ---")
-test_strings = ["bbbaab", "aababb"]
-for test_str in test_strings:
-    result = Run_NPDA(npda_result, test_str)
-    print(f"String '{test_str}': {result}")
+testCases = [
+    {
+        "name": "Test Case 1",
+        "cfg_file": "test_case_1_cfg.txt",
+        "strings": ["aababb", "aaaaabbbbb"],
+    },
+    {
+        "name": "Test Case 2",
+        "cfg_file": "test_case_2_cfg.txt",
+        "strings": ["baabba", "aaabbb"],
+    },
+    {
+        "name": "Test Case 3",
+        "cfg_file": "test_case_3_cfg.txt",
+        "strings": ["bbaabaaaaa", "abaaba"],
+    },
+    {
+        "name": "Test Case 4",
+        "cfg_file": "test_case_4_cfg.txt",
+        "strings": ["baabaa", "abaabab"],
+    },
+    {
+        "name": "Test Case 5",
+        "cfg_file": "test_case_5_cfg.txt",
+        "strings": ["bbbaab", "aababbb"],
+    },
+]
+# loops thorugh test cases for part 1. it reads the inputs from text files and outputs the results to the console and a text file.
+for case in testCases:
+    cfgPath = os.path.join(baseDir, case["cfg_file"])
 
-# Test NPDA-NFA Intersection
-print("\n--- Testing NPDA-NFA Intersection ---")
-example_nfa = "q1fq2fq3fq4,q1-a->q1,q1-b->q2,q2-a->q2,q2-b->q3,q3-a->q3,q3-b->q4,q4-a|b->q4"
-example_npda = "q1q2q3q4fq5,q1-empty-z-az->q2,q2-empty-a-aa->q3,q3-empty-a-aa->q4,q4-a-a-empty|b-z-z|b-a-a->q4"
-test = Intersection_NPDA_NFA(example_npda, example_nfa)
-print("\n--- Testing NPDA ---")
-test_strings = ["baaba", "baaaab"]
-for test_str in test_strings:
-    result = Run_NPDA(test, test_str)
-    print(f"String '{test_str}': {result}")
+    with open(cfgPath, "r", encoding="utf-8") as cfgFile:
+        cfgText = cfgFile.read().strip()
+
+    print(f"\n=== {case['name']} ===")
+    print("CFG input:")
+    print(cfgText)
+
+    npdaResult = CFG_to_NPDA(cfgText)
+    print("\nCFG output (NPDA):")
+    print(npdaResult)
+
+    npdaOutputFilename = f"{case['name'].lower().replace(' ', '_')}_npda_output.txt"
+    npdaOutputPath = os.path.join(baseDir, npdaOutputFilename)
+    with open(npdaOutputPath, "w", encoding="utf-8") as npdaOutputFile:
+        npdaOutputFile.write(npdaResult + "\n")
+
+    print("\nNPDA test results:")
+    for testStr in case["strings"]:
+        result = Run_NPDA(npdaResult, testStr)
+        print(f"String '{testStr}': {result}")
+
+
+intersectionTestCases = [
+    {
+        "name": "Intersection Test Case 1",
+        "automata_file": "intersection_test_case_1_automata.txt",
+        "strings": ["aabbaa", "aaaa"],
+    },
+    {
+        "name": "Intersection Test Case 2",
+        "automata_file": "intersection_test_case_2_automata.txt",
+        "strings": ["baaba", "baaaab"],
+    },
+    {
+        "name": "Intersection Test Case 3",
+        "automata_file": "intersection_test_case_3_automata.txt",
+        "strings": ["baaa", "aabaaab"],
+    },
+    {
+        "name": "Intersection Test Case 4",
+        "automata_file": "intersection_test_case_4_automata.txt",
+        "strings": ["bbaaa", "baaabbb"],
+    },
+    {
+        "name": "Intersection Test Case 5",
+        "automata_file": "intersection_test_case_5_automata.txt",
+        "strings": ["aabbaab", "aaabbb"],
+    },
+]
+
+# loops thorugh the test cases for part 2. reads the NPDA and NFA from a text file, makes the intersection NPDA, then tests the cases and outputs the results to the console and a text file.
+def load_intersection_automata(filePath):
+    with open(filePath, "r", encoding="utf-8") as automataFile:
+        lines = [line.strip() for line in automataFile if line.strip()]
+    return lines[0], lines[1]
+
+for case in intersectionTestCases:
+    filePath = os.path.join(baseDir, case["automata_file"])
+    nfa_input, npda_input = load_intersection_automata(filePath)
+
+    print(f"\n=== {case['name']} ===")
+    print("NFA input:")
+    print(nfa_input)
+    print("NPDA input:")
+    print(npda_input)
+
+    newNPDA = Intersection_NPDA_NFA(npda_input, nfa_input)
+    print("\nIntersection output (NPDA):")
+    print(newNPDA)
+
+    intersectionOutputFilename = f"{case['name'].lower().replace(' ', '_')}_intersection_npda_output.txt"
+    intersectionOutputPath = os.path.join(baseDir, intersectionOutputFilename)
+    with open(intersectionOutputPath, "w", encoding="utf-8") as intersectionOutputFile:
+        intersectionOutputFile.write(newNPDA + "\n")
+
+    print("\nIntersection NPDA test results:")
+    for testStr in case["strings"]:
+        result = Run_NPDA(newNPDA, testStr)
+        print(f"String '{testStr}': {result}")
